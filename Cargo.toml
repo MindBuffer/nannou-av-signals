@@ -1,0 +1,15 @@
+[package]
+name = "signals"
+version = "0.1.0"
+authors = ["JoshuaBatty <joshpbatty@gmail.com>"]
+
+[dependencies]
+
+# nannou = { git = "https://github.com/nannou-org/nannou", branch = "master" }
+nannou = "0.11"
+serde = "1"
+serde_derive = "1"
+sacn = "0.4.4"
+ether-dream = "0.2.0"
+nannou_laser = "0.3.0"
+nannou_audio = "0.2.0"
