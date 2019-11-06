@@ -1,9 +1,8 @@
-extern crate nannou;
-
 use nannou::ease::*;
 use nannou::math::fmod;
 use nannou::prelude::*;
 use nannou::rand::random_f32;
+use serde::{Deserialize, Serialize};
 
 pub const ALL: &'static [Signal] = &[
     Signal::SINE,

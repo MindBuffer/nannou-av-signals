@@ -1,12 +1,11 @@
 // Simple Harmonic Motion module
 use nannou::math::fmod;
 use nannou::prelude::*;
-use nannou::state::time::Duration;
-use signals::{self, ease_lfo, lfo, EasingType, LfoType, Signal};
+use crate::signals::{self, ease_lfo, lfo, EasingType, LfoType, Signal};
 
 pub struct Shm {
     signal_type: Signal, // LFO or the fract component of an Easing Curve
-    phases: Vec<f32>,    // Our vector of oscillator phases per SHM block
+    pub phases: Vec<f32>,    // Our vector of oscillator phases per SHM block
     start_angle: f32,    // The master frequency
     pub a_velocity: f32, // Defines the phase offsets between oscillators
     angle_offset: f32,   // Defines the specific offset pattern, set by offset_hz
