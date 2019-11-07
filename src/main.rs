@@ -9,6 +9,10 @@ use nannou_laser as laser;
 use shm::Shm;
 use signals::Signal;
 
+const PIXELS_PER_LED_STRIP: u16 = 60;
+const DMX_CHANNELS_PER_LED: u16 = 3;
+const NUM_LED_STRIPS: u16 = 9;
+const TOTAL_DMX_CHANNELS: u16 = PIXELS_PER_LED_STRIP * DMX_CHANNELS_PER_LED * NUM_LED_STRIPS;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -211,8 +215,6 @@ fn view(app: &App, m: &Model, frame: &Frame) {
 
     let win = app.window_rect();
 
-    //let mut laser_data = Vec::new();
-
     let radius = win.w() / m.shm.size() as f32;
     let height = win.h() / 2.0 - 20.0;
 
@@ -229,7 +231,6 @@ fn view(app: &App, m: &Model, frame: &Frame) {
             draw.ellipse().x_y(x, y * height).w_h(radius, radius).hsv(h, s, v);
         });
 
-    // Write the result of our drawing to the window's OpenGL frame.
     draw.to_frame(app, &frame).unwrap();
 
     // Draw the UI
@@ -238,6 +239,8 @@ fn view(app: &App, m: &Model, frame: &Frame) {
 
 // A function that renders the given `Audio` to the given `Buffer`, returning the result of both.
 fn audio(audio: &mut Audio, buffer: &mut Buffer) {
+                dbg!("ee");
+
     let sample_rate = buffer.sample_rate() as f64;
     let volume = 0.5;
     for frame in buffer.frames_mut() {
