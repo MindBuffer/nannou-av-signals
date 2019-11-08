@@ -1,8 +1,9 @@
+use super::SignalParams;
+use crate::shm::Shm;
+use crate::TOTAL_LED_PIXELS;
 use nannou::ui::conrod_core::widget_ids;
 use nannou::ui::prelude::*;
 use nannou::ui::Color;
-use super::SignalParams;
-use crate::shm::Shm;
 
 pub const PAD: Scalar = 20.0;
 pub const WIDGET_W: Scalar = 200.0;
@@ -27,19 +28,14 @@ widget_ids! {
         mirror,
         invert,
         signal_type,
-        dmx_on, 
+        dmx_on,
         laser_on,
         audio_on,
     }
 }
 
 /// Update the user interface.
-pub fn update(
-    ref mut ui: UiCell,
-    ids: &mut Ids,
-    params: &mut SignalParams,
-    shm: &mut Shm,
-) {
+pub fn update(ref mut ui: UiCell, ids: &mut Ids, params: &mut SignalParams, shm: &mut Shm) {
     widget::Canvas::new()
         .pad(PAD)
         .border(0.0)
@@ -138,7 +134,7 @@ pub fn update(
         shm.skew = value;
     }
 
-    for value in slider(shm.size() as f32, 1.0, 512.0)
+    for value in slider(shm.size() as f32, 1.0, TOTAL_LED_PIXELS as f32)
         .down(10.0)
         .label("Count")
         .set(ids.count, ui)
@@ -177,7 +173,7 @@ pub fn update(
         .scrollbar_on_top()
         .set(ids.signal_type, ui)
     {
-        params.selected_idx = Some(selected_idx);   
+        params.selected_idx = Some(selected_idx);
     }
 }
 

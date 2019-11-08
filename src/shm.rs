@@ -1,18 +1,26 @@
 // Simple Harmonic Motion module
+use crate::signals::Signal;
 use nannou::math::fmod;
-use nannou::prelude::*;
-use crate::signals::{self, ease_lfo, lfo, EasingType, LfoType, Signal};
 
 pub struct Shm {
-    signal_type: Signal, // LFO or the fract component of an Easing Curve
-    pub phases: Vec<f32>,    // Our vector of oscillator phases per SHM block
-    start_angle: f32,    // The master frequency
-    pub a_velocity: f32, // Defines the phase offsets between oscillators
-    angle_offset: f32,   // Defines the specific offset pattern, set by offset_hz
-    pub hz: f32,         // Master Speed of all osciallators
-    pub offset_hz: f32,  // The rate at which oscillators fall in and out of phase
-    pub skew: f32,       // Skew the waveform in a direction
-    pub mirror: bool,    // Defines is our phases are mirrored or not
+    // LFO or the fract component of an Easing Curve
+    signal_type: Signal,
+    // Our vector of oscillator phases per SHM block
+    phases: Vec<f32>,
+    // The master frequency
+    start_angle: f32,
+    // Defines the phase offsets between oscillators
+    pub a_velocity: f32,
+    // Defines the specific offset pattern, set by offset_hz
+    angle_offset: f32,
+    // Master Speed of all osciallators
+    pub hz: f32,
+    // The rate at which oscillators fall in and out of phase
+    pub offset_hz: f32,
+    // Skew the waveform in a direction
+    pub skew: f32,
+    // Defines is our phases are mirrored or not
+    pub mirror: bool,
 }
 
 impl Shm {

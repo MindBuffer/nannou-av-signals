@@ -130,7 +130,7 @@ pub fn lfo(lfo_type: LfoType, phase: f32) -> f32 {
         LfoType::Triangle => triangle(phase),
         LfoType::Sawtooth => sawtooth(phase),
         LfoType::Square => square(phase),
-        LfoType::Noise => noise(phase),
+        LfoType::Noise => noise(),
     }
 }
 
@@ -146,7 +146,7 @@ fn square(phase: f32) -> f32 {
 fn sawtooth(phase: f32) -> f32 {
     fmod(phase, 1.0) * -2.0 + 1.0
 }
-fn noise(phase: f32) -> f32 {
+fn noise() -> f32 {
     random_f32() * 2.0 - 1.0
 }
 
