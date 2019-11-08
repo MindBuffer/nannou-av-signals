@@ -13,6 +13,7 @@ const PIXELS_PER_LED_STRIP: u16 = 60;
 const DMX_CHANNELS_PER_LED: u16 = 3;
 const NUM_LED_STRIPS: u16 = 9;
 const TOTAL_DMX_CHANNELS: u16 = PIXELS_PER_LED_STRIP * DMX_CHANNELS_PER_LED * NUM_LED_STRIPS;
+const DMX_ADDRS_PER_UNIVERSE: u16 = 512;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -68,7 +69,7 @@ fn model(app: &App) -> Model {
         .unwrap();
     
     //let mut shm = Shm::new(points_per_frame as usize, 0.1, 0.49, 0.0);
-    let mut shm = Shm::new(34, 0.1, 0.49, 0.0);
+    let mut shm = Shm::new(TOTAL_DMX_CHANNELS as usize, 0.1, 0.49, 0.0);
     shm.set_signal_type(Signal::SINE_IN_OUT);
 
     let phases = vec![0.0; shm.size()];
@@ -115,7 +116,7 @@ fn model(app: &App) -> Model {
         min: -1.0,
         max: 1.0,
         invert: false,
-        dmx_on: true,
+        dmx_on: false,
         laser_on: true,
         audio_on: false,
     };
@@ -172,14 +173,31 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
     match (&m.dmx.source, m.params.dmx_on) {
         (Some(ref dmx_source), true) => {
             m.dmx.buffer.clear();
-            // Make sure we remap our normalised phase values
-            // to u8 values between 0 & 255 for DMX 
-            m.dmx.buffer.extend(m.phases.iter()
-                .map(|p| (*p * 255.0) as u8)
-            );
+            
+            const DMX_RGB_ADDRS_PER_UNIVERSE: usize = DMX_ADDRS_PER_UNIVERSE as usize - 2;
+            assert!(m.phases.len() >= 3 * DMX_RGB_ADDRS_PER_UNIVERSE);
+            for slice in m.phases.chunks(DMX_RGB_ADDRS_PER_UNIVERSE) {
+                // Make sure we remap our normalised phase values
+                // to u8 values between 0 & 255 for DMX 
+                m.dmx.buffer.extend(slice.iter().map(|&p| (p * 255.0) as u8));
+                // We need to pack in 2 empty bytes so colour values aren't spilit over universes! 
+                m.dmx.buffer.push(0);
+                m.dmx.buffer.push(0);
+            }
 
-            // Send DMX data.
-            let universe = 1;
+            let mut universe = 1;
+            
+            // If we've filled a universe, send it.
+            while !m.dmx.buffer.is_empty() {
+                let data = &m.dmx.buffer[..DMX_ADDRS_PER_UNIVERSE as usize];
+                dmx_source
+                    .send(universe, data)
+                    .expect("failed to send LED DMX data");
+                m.dmx.buffer.drain(..DMX_ADDRS_PER_UNIVERSE as usize);
+                universe += 1;
+            }
+
+            // Send any remaining dmx data.
             dmx_source
                 .send(universe, &m.dmx.buffer[..])
                 .expect("failed to send DMX data");
@@ -218,17 +236,19 @@ fn view(app: &App, m: &Model, frame: &Frame) {
     let radius = win.w() / m.shm.size() as f32;
     let height = win.h() / 2.0 - 20.0;
 
-    m.phases.iter()
+    let count = 20;
+    m.phases.chunks(count)
         .enumerate()
-        .for_each(|(i, y)| {
+        .for_each(|(i, slice)| {
             let x = (win.left() + (radius * 0.5)) + i as f32 * radius;
+            let x = map_range(i, 0, count, win.left(), win.right());
             let (h, s, v) = (1.0 - (i as f32 / m.shm.size() as f32), 0.75, 0.5);
             draw.line()
                 .start(Point2::new(x, 0.0))
-                .end(Point2::new(x, y * height))
+                .end(Point2::new(x, slice[0] * height))
                 .hsv(h, s, v);
 
-            draw.ellipse().x_y(x, y * height).w_h(radius, radius).hsv(h, s, v);
+            draw.ellipse().x_y(x, slice[0] * height).w_h(radius, radius).hsv(h, s, v);
         });
 
     draw.to_frame(app, &frame).unwrap();
@@ -239,8 +259,6 @@ fn view(app: &App, m: &Model, frame: &Frame) {
 
 // A function that renders the given `Audio` to the given `Buffer`, returning the result of both.
 fn audio(audio: &mut Audio, buffer: &mut Buffer) {
-                dbg!("ee");
-
     let sample_rate = buffer.sample_rate() as f64;
     let volume = 0.5;
     for frame in buffer.frames_mut() {
