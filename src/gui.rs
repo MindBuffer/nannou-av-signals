@@ -1,9 +1,9 @@
+use super::SignalParams;
+use crate::shm::Shm;
+use crate::TOTAL_LED_PIXELS;
 use nannou::ui::conrod_core::widget_ids;
 use nannou::ui::prelude::*;
 use nannou::ui::Color;
-use super::SignalParams;
-use crate::TOTAL_LED_PIXELS;
-use crate::shm::Shm;
 
 pub const PAD: Scalar = 20.0;
 pub const WIDGET_W: Scalar = 200.0;
@@ -35,12 +35,7 @@ widget_ids! {
 }
 
 /// Update the user interface.
-pub fn update(
-    ref mut ui: UiCell,
-    ids: &mut Ids,
-    params: &mut SignalParams,
-    shm: &mut Shm,
-) {
+pub fn update(ref mut ui: UiCell, ids: &mut Ids, params: &mut SignalParams, shm: &mut Shm) {
     widget::Canvas::new()
         .pad(PAD)
         .border(0.0)

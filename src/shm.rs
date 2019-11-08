@@ -1,6 +1,6 @@
 // Simple Harmonic Motion module
-use nannou::math::fmod;
 use crate::signals::Signal;
+use nannou::math::fmod;
 
 pub struct Shm {
     // LFO or the fract component of an Easing Curve

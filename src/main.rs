@@ -1,6 +1,6 @@
+mod gui;
 mod shm;
 mod signals;
-mod gui;
 
 use nannou::prelude::*;
 use nannou::Ui;
@@ -154,12 +154,7 @@ fn model(app: &App) -> Model {
 fn update(_app: &App, m: &mut Model, _update: Update) {
     // Apply the GUI update.
     let ui = m.ui.set_widgets();
-    gui::update(
-        ui,
-        &mut m.ids,
-        &mut m.params,
-        &mut m.shm,
-    );
+    gui::update(ui, &mut m.ids, &mut m.params, &mut m.shm);
 
     // First, check for new laser DACs.
     for dac in m.laser_dac_rx.try_recv() {
@@ -168,9 +163,15 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
     }
 
     // If the laser is turned on and we have a DAC, create our stream!
-    match (m.laser_stream.is_some(), m.params.laser_on, m.detected_laser_dac.as_ref()) {
+    match (
+        m.laser_stream.is_some(),
+        m.params.laser_on,
+        m.detected_laser_dac.as_ref(),
+    ) {
         (false, true, Some(dac)) => {
-            let laser_model = Laser { positions: Vec::new() };
+            let laser_model = Laser {
+                positions: Vec::new(),
+            };
             let stream = m
                 .laser_api
                 .new_frame_stream(laser_model, laser)
@@ -187,9 +188,15 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
 
     // Create or destroy the audio stream if necessary.
     if m.audio_stream.is_none() && m.params.audio_on {
-        let oscillators = (0..m.phases.len()).map(|_| Oscillator{phase: 0.0, hz: 100.0}).collect();
-        let audio_model = Audio { oscillators, };
-        let stream = m.audio_host
+        let oscillators = (0..m.phases.len())
+            .map(|_| Oscillator {
+                phase: 0.0,
+                hz: 100.0,
+            })
+            .collect();
+        let audio_model = Audio { oscillators };
+        let stream = m
+            .audio_host
             .new_output_stream(audio_model)
             .render(audio)
             .build()
@@ -202,8 +209,8 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
 
     // Ensure we are connected to a DMX source if enabled.
     if m.params.dmx_on && m.dmx.source.is_none() {
-        let source = sacn::DmxSource::new("Nannou Signals")
-            .expect("failed to connect to DMX source");
+        let source =
+            sacn::DmxSource::new("Nannou Signals").expect("failed to connect to DMX source");
         m.dmx.source = Some(source);
     } else if !m.params.dmx_on && m.dmx.source.is_some() {
         m.dmx.source.take();
@@ -212,11 +219,15 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
     // Update the simple harmonic motion.
     m.shm.update();
     if m.params.selected_idx.is_some() {
-        m.shm.set_signal_type(signals::ALL[m.params.selected_idx.unwrap()]);
+        m.shm
+            .set_signal_type(signals::ALL[m.params.selected_idx.unwrap()]);
     }
 
     // Apply the invert and pow GUI controls to the SHM phases to get our actual phases.
-    m.phases = m.shm.phases().iter()
+    m.phases = m
+        .shm
+        .phases()
+        .iter()
         .map(|p| {
             let mut phase = map_range(p.clone(), -1.0, 1.0, 0.0, 1.0);
             phase = phase.powf(m.params.pow);
@@ -261,21 +272,24 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
     // Send our phase data over to the audio thead
     if let Some(ref audio_stream) = m.audio_stream {
         let phases = m.phases.clone();
-        audio_stream.send(move |audio| {
-            for (osc, phase) in audio.oscillators.iter_mut().zip(phases) {
-                osc.hz = phase as f64;
-            }
-        }).unwrap();
+        audio_stream
+            .send(move |audio| {
+                for (osc, phase) in audio.oscillators.iter_mut().zip(phases) {
+                    osc.hz = phase as f64;
+                }
+            })
+            .unwrap();
     }
 
     // Send our phase data over to the laser thead
     if let Some(ref laser_stream) = m.laser_stream {
         let phases = m.phases.clone();
-        laser_stream.send(move |laser| {
-            laser.positions.clear();
-            laser.positions.extend(phases);
-        })
-        .unwrap();
+        laser_stream
+            .send(move |laser| {
+                laser.positions.clear();
+                laser.positions.extend(phases);
+            })
+            .unwrap();
     }
 }
 
@@ -288,22 +302,19 @@ fn view(app: &App, m: &Model, frame: &Frame) {
     let radius = win.w() / m.shm.size() as f32;
     let height = win.h() / 2.0 - 20.0;
 
-    m.phases
-        .iter()
-        .enumerate()
-        .for_each(|(i, &phase)| {
-            let x = map_range(i, 0, m.phases.len(), win.left(), win.right());
+    m.phases.iter().enumerate().for_each(|(i, &phase)| {
+        let x = map_range(i, 0, m.phases.len(), win.left(), win.right());
 
-            draw.line()
-                .color(WHITE)
-                .start(Point2::new(x, 0.0))
-                .end(Point2::new(x, phase * height));
+        draw.line()
+            .color(WHITE)
+            .start(Point2::new(x, 0.0))
+            .end(Point2::new(x, phase * height));
 
-            draw.ellipse()
-                .color(WHITE)
-                .x_y(x, phase * height)
-                .w_h(radius, radius);
-        });
+        draw.ellipse()
+            .color(WHITE)
+            .x_y(x, phase * height)
+            .w_h(radius, radius);
+    });
 
     draw.to_frame(app, &frame).unwrap();
 
@@ -331,14 +342,11 @@ fn audio(audio: &mut Audio, buffer: &mut Buffer) {
 }
 
 fn laser(laser: &mut Laser, frame: &mut laser::Frame) {
-    let points = laser.positions
-        .iter()
-        .enumerate()
-        .map(|(i, y)| {
-            let x = map_range(i, 0, laser.positions.len(), -1.0, 1.0);
-            let pos = [x, *y];
-            let rgb = [1.0, 1.0, 1.0];
-            laser::Point::new(pos, rgb)
-        });
+    let points = laser.positions.iter().enumerate().map(|(i, y)| {
+        let x = map_range(i, 0, laser.positions.len(), -1.0, 1.0);
+        let pos = [x, *y];
+        let rgb = [1.0, 1.0, 1.0];
+        laser::Point::new(pos, rgb)
+    });
     frame.add_lines(points);
 }
