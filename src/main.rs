@@ -32,6 +32,7 @@ pub struct SignalParams {
     dmx_on: bool,
     laser_on: bool,
     audio_on: bool,
+    hue: f32,
 }
 
 struct Model {
@@ -49,6 +50,7 @@ struct Model {
     phases: Vec<f32>,
 }
 
+#[derive(Clone)]
 struct Oscillator {
     phase: f64,
     hz: f64,
@@ -56,6 +58,7 @@ struct Oscillator {
 
 struct Laser {
     positions: Vec<f32>,
+    rgb: LinSrgb,
 }
 
 struct Audio {
@@ -75,8 +78,7 @@ fn model(app: &App) -> Model {
         .build()
         .unwrap();
 
-    //let mut shm = Shm::new(points_per_frame as usize, 0.1, 0.49, 0.0);
-    let mut shm = Shm::new(TOTAL_LED_PIXELS as usize, 0.1, 0.49, 0.0);
+    let mut shm = Shm::new(TOTAL_LED_PIXELS as usize, 0.1, 0.005, 0.0);
     shm.set_signal_type(Signal::SINE_IN_OUT);
 
     let phases = vec![0.0; shm.size()];
@@ -133,6 +135,7 @@ fn model(app: &App) -> Model {
         dmx_on: false,
         laser_on: true,
         audio_on: false,
+        hue: 1.0,
     };
 
     Model {
@@ -171,6 +174,7 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         (false, true, Some(dac)) => {
             let laser_model = Laser {
                 positions: Vec::new(),
+                rgb: lin_srgb(1.0, 1.0, 1.0),
             };
             let stream = m
                 .laser_api
@@ -246,8 +250,12 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         for i in 0..TOTAL_LED_PIXELS {
             let phase_ix = ((i as f64 / TOTAL_LED_PIXELS as f64) * m.phases.len() as f64) as usize;
             let phase = m.phases[phase_ix];
-            let byte = (phase * std::u8::MAX as f32) as u8;
-            let rgb = [byte; 3];
+
+            let float_to_byte = |p: f32| -> u8 {
+                (p * std::u8::MAX as f32) as u8
+            };  
+            let c: Rgb = hsv(m.params.hue, 1.0, 1.0).into();
+            let rgb = [float_to_byte(phase*c.red), float_to_byte(phase*c.green), float_to_byte(phase*c.blue)];
             m.dmx.buffer.extend(rgb.iter().cloned());
         }
 
@@ -274,8 +282,10 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         let phases = m.phases.clone();
         audio_stream
             .send(move |audio| {
+                audio.oscillators.resize(phases.len(), Oscillator { phase: 0.0, hz: 0.0 });
+
                 for (osc, phase) in audio.oscillators.iter_mut().zip(phases) {
-                    osc.hz = phase as f64;
+                    osc.hz = map_range(phase as f64,0.0,1.0,100.0,2000.0);
                 }
             })
             .unwrap();
@@ -284,10 +294,12 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
     // Send our phase data over to the laser thead
     if let Some(ref laser_stream) = m.laser_stream {
         let phases = m.phases.clone();
+        let rgb: Rgb = hsv(m.params.hue, 1.0, 1.0).into();
         laser_stream
             .send(move |laser| {
                 laser.positions.clear();
                 laser.positions.extend(phases);
+                laser.rgb = rgb.into_linear();
             })
             .unwrap();
     }
@@ -306,12 +318,12 @@ fn view(app: &App, m: &Model, frame: &Frame) {
         let x = map_range(i, 0, m.phases.len(), win.left(), win.right());
 
         draw.line()
-            .color(WHITE)
+            .hsv(m.params.hue, 1.0, 1.0)
             .start(Point2::new(x, 0.0))
             .end(Point2::new(x, phase * height));
 
         draw.ellipse()
-            .color(WHITE)
+            .hsv(m.params.hue, 1.0, 1.0)
             .x_y(x, phase * height)
             .w_h(radius, radius);
     });
@@ -345,7 +357,7 @@ fn laser(laser: &mut Laser, frame: &mut laser::Frame) {
     let points = laser.positions.iter().enumerate().map(|(i, y)| {
         let x = map_range(i, 0, laser.positions.len(), -1.0, 1.0);
         let pos = [x, *y];
-        let rgb = [1.0, 1.0, 1.0];
+        let rgb = [laser.rgb.red, laser.rgb.green, laser.rgb.blue];
         laser::Point::new(pos, rgb)
     });
     frame.add_lines(points);
