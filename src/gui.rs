@@ -2,7 +2,7 @@ use nannou::ui::conrod_core::widget_ids;
 use nannou::ui::prelude::*;
 use nannou::ui::Color;
 use super::SignalParams;
-use crate::LED_PIXELS_PER_UNIVERSE;
+use crate::TOTAL_LED_PIXELS;
 use crate::shm::Shm;
 
 pub const PAD: Scalar = 20.0;
@@ -139,7 +139,7 @@ pub fn update(
         shm.skew = value;
     }
 
-    for value in slider(shm.size() as f32, 1.0, LED_PIXELS_PER_UNIVERSE as f32)
+    for value in slider(shm.size() as f32, 1.0, TOTAL_LED_PIXELS as f32)
         .down(10.0)
         .label("Count")
         .set(ids.count, ui)

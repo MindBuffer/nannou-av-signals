@@ -16,11 +16,7 @@ const ADDRS_PER_STRIP: u16 = PIXELS_PER_LED_STRIP * DMX_CHANNELS_PER_LED;
 const STRIPS_PER_UNIVERSE: u16 = 3;
 const LED_ADDRS_PER_UNIVERSE: u16 = ADDRS_PER_STRIP * STRIPS_PER_UNIVERSE;
 const NUM_LED_STRIPS: u16 = 6;
-const NUM_UNIVERSES: u16 = NUM_LED_STRIPS / STRIPS_PER_UNIVERSE;
-const TOTAL_LED_ADDRS: u16 = NUM_UNIVERSES * LED_ADDRS_PER_UNIVERSE;
-const LED_PIXELS_PER_UNIVERSE: u16 = STRIPS_PER_UNIVERSE * PIXELS_PER_LED_STRIP;
 const TOTAL_LED_PIXELS: u16 = NUM_LED_STRIPS * PIXELS_PER_LED_STRIP;
-const DMX_ADDRS_PER_UNIVERSE: u16 = 512;
 
 fn main() {
     nannou::app(model).update(update).run();
@@ -201,7 +197,7 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         m.audio_stream = Some(stream);
     } else if m.audio_stream.is_some() && !m.params.audio_on {
         let stream = m.audio_stream.take().unwrap();
-        stream.pause();
+        stream.pause().ok();
     }
 
     // Ensure we are connected to a DMX source if enabled.
@@ -220,7 +216,7 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
     }
 
     // Apply the invert and pow GUI controls to the SHM phases to get our actual phases.
-    m.phases = m.shm.phases.iter()
+    m.phases = m.shm.phases().iter()
         .map(|p| {
             let mut phase = map_range(p.clone(), -1.0, 1.0, 0.0, 1.0);
             phase = phase.powf(m.params.pow);
@@ -296,7 +292,6 @@ fn view(app: &App, m: &Model, frame: &Frame) {
         .iter()
         .enumerate()
         .for_each(|(i, &phase)| {
-            let x = (win.left() + (radius * 0.5)) + i as f32 * radius;
             let x = map_range(i, 0, m.phases.len(), win.left(), win.right());
 
             draw.line()
