@@ -2,6 +2,7 @@ use nannou::ui::conrod_core::widget_ids;
 use nannou::ui::prelude::*;
 use nannou::ui::Color;
 use super::SignalParams;
+use crate::LED_PIXELS_PER_UNIVERSE;
 use crate::shm::Shm;
 
 pub const PAD: Scalar = 20.0;
@@ -27,7 +28,7 @@ widget_ids! {
         mirror,
         invert,
         signal_type,
-        dmx_on, 
+        dmx_on,
         laser_on,
         audio_on,
     }
@@ -138,7 +139,7 @@ pub fn update(
         shm.skew = value;
     }
 
-    for value in slider(shm.size() as f32, 1.0, 512.0)
+    for value in slider(shm.size() as f32, 1.0, LED_PIXELS_PER_UNIVERSE as f32)
         .down(10.0)
         .label("Count")
         .set(ids.count, ui)
@@ -177,7 +178,7 @@ pub fn update(
         .scrollbar_on_top()
         .set(ids.signal_type, ui)
     {
-        params.selected_idx = Some(selected_idx);   
+        params.selected_idx = Some(selected_idx);
     }
 }
 

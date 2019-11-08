@@ -8,11 +8,18 @@ use nannou_audio::{self as audio, Buffer};
 use nannou_laser as laser;
 use shm::Shm;
 use signals::Signal;
+use std::sync::{mpsc, Arc};
 
-const PIXELS_PER_LED_STRIP: u16 = 60;
+const PIXELS_PER_LED_STRIP: u16 = 48;
 const DMX_CHANNELS_PER_LED: u16 = 3;
-const NUM_LED_STRIPS: u16 = 9;
-const TOTAL_DMX_CHANNELS: u16 = PIXELS_PER_LED_STRIP * DMX_CHANNELS_PER_LED * NUM_LED_STRIPS;
+const ADDRS_PER_STRIP: u16 = PIXELS_PER_LED_STRIP * DMX_CHANNELS_PER_LED;
+const STRIPS_PER_UNIVERSE: u16 = 3;
+const LED_ADDRS_PER_UNIVERSE: u16 = ADDRS_PER_STRIP * STRIPS_PER_UNIVERSE;
+const NUM_LED_STRIPS: u16 = 6;
+const NUM_UNIVERSES: u16 = NUM_LED_STRIPS / STRIPS_PER_UNIVERSE;
+const TOTAL_LED_ADDRS: u16 = NUM_UNIVERSES * LED_ADDRS_PER_UNIVERSE;
+const LED_PIXELS_PER_UNIVERSE: u16 = STRIPS_PER_UNIVERSE * PIXELS_PER_LED_STRIP;
+const TOTAL_LED_PIXELS: u16 = NUM_LED_STRIPS * PIXELS_PER_LED_STRIP;
 const DMX_ADDRS_PER_UNIVERSE: u16 = 512;
 
 fn main() {
@@ -33,8 +40,12 @@ pub struct SignalParams {
 
 struct Model {
     dmx: Dmx,
-    audio_stream: audio::Stream<Audio>,
-    laser_stream: laser::FrameStream<Laser>,
+    audio_host: audio::Host,
+    audio_stream: Option<audio::Stream<Audio>>,
+    laser_api: Arc<laser::Api>,
+    laser_stream: Option<laser::FrameStream<Laser>>,
+    laser_dac_rx: mpsc::Receiver<laser::DetectedDac>,
+    detected_laser_dac: Option<laser::DetectedDac>,
     shm: Shm,
     ui: Ui,
     ids: gui::Ids,
@@ -67,9 +78,9 @@ fn model(app: &App) -> Model {
         .view(view)
         .build()
         .unwrap();
-    
+
     //let mut shm = Shm::new(points_per_frame as usize, 0.1, 0.49, 0.0);
-    let mut shm = Shm::new(TOTAL_DMX_CHANNELS as usize, 0.1, 0.49, 0.0);
+    let mut shm = Shm::new(TOTAL_LED_PIXELS as usize, 0.1, 0.49, 0.0);
     shm.set_signal_type(Signal::SINE_IN_OUT);
 
     let phases = vec![0.0; shm.size()];
@@ -80,29 +91,36 @@ fn model(app: &App) -> Model {
     // Generate some ids for our widgets
     let ids = gui::Ids::new(ui.widget_id_generator());
 
-    // Initialise the state that we want to live on the audio thread.
-    let oscillators = (0..shm.size()).map(|_| Oscillator{phase: 0.0, hz: 100.0}).collect();
-    let audio_model = Audio {
-        oscillators,
-    };
-    
     // Initialise the audio API so we can spawn an audio stream.
     let audio_host = audio::Host::new();
-    let audio_stream = audio_host
-        .new_output_stream(audio_model)
-        .render(audio)
-        .build()
-        .unwrap();
+    let audio_stream = None;
 
-    // Initialise the state that we want to live on the laser thread and spawn the stream.
-    let laser_model = Laser {
-        positions: Vec::new(),
-    };
-    let _laser_api = laser::Api::new();
-    let laser_stream = _laser_api
-        .new_frame_stream(laser_model, laser)
-        .build()
-        .unwrap();
+    // Initialise the LASER API.
+    let laser_api = Arc::new(laser::Api::new());
+
+    // A channel for receiving newly detected ether-dream DACs.
+    let (laser_dac_tx, laser_dac_rx) = mpsc::channel();
+
+    // Spawn a thread for detecting the DACs.
+    let laser_api2 = laser_api.clone();
+    std::thread::spawn(move || {
+        let mut detected = std::collections::HashSet::new();
+        for res in laser_api2
+            .detect_dacs()
+            .expect("failed to start detecting DACs")
+        {
+            let dac = res.expect("error occurred during DAC detection");
+            if detected.insert(dac.id()) {
+                println!("{:#?}", dac);
+                if laser_dac_tx.send(dac).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    let detected_laser_dac = None;
+    let laser_stream = None;
 
     let dmx = Dmx {
         source: None,
@@ -123,8 +141,12 @@ fn model(app: &App) -> Model {
 
     Model {
         dmx,
+        audio_host,
         audio_stream,
+        laser_api,
         laser_stream,
+        laser_dac_rx,
+        detected_laser_dac,
         shm,
         ui,
         ids,
@@ -143,22 +165,44 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         &mut m.shm,
     );
 
-    m.shm.update();
-    if m.params.selected_idx.is_some() {
-        m.shm.set_signal_type(signals::ALL[m.params.selected_idx.unwrap()]);
+    // First, check for new laser DACs.
+    for dac in m.laser_dac_rx.try_recv() {
+        println!("Detected LASER DAC {:?}!", dac.id());
+        m.detected_laser_dac = Some(dac);
     }
 
-    m.phases = m.shm.phases.iter()
-        .map(|p| {
-            let mut phase = map_range(p.clone(), -1.0, 1.0, 0.0, 1.0);
-            phase = phase.powf(m.params.pow);
+    // If the laser is turned on and we have a DAC, create our stream!
+    match (m.laser_stream.is_some(), m.params.laser_on, m.detected_laser_dac.as_ref()) {
+        (false, true, Some(dac)) => {
+            let laser_model = Laser { positions: Vec::new() };
+            let stream = m
+                .laser_api
+                .new_frame_stream(laser_model, laser)
+                .detected_dac(dac.clone())
+                .build()
+                .expect("failed to establish stream with newly detected DAC");
+            m.laser_stream = Some(stream);
+        }
+        (true, false, _) => {
+            m.laser_stream.take();
+        }
+        _ => (),
+    }
 
-            match m.params.invert {
-                true => map_range(phase, 0.0, 1.0, m.params.max, m.params.min),
-                false => map_range(phase, 0.0, 1.0, m.params.min, m.params.max),
-            }        
-        })
-        .collect();
+    // Create or destroy the audio stream if necessary.
+    if m.audio_stream.is_none() && m.params.audio_on {
+        let oscillators = (0..m.phases.len()).map(|_| Oscillator{phase: 0.0, hz: 100.0}).collect();
+        let audio_model = Audio { oscillators, };
+        let stream = m.audio_host
+            .new_output_stream(audio_model)
+            .render(audio)
+            .build()
+            .unwrap();
+        m.audio_stream = Some(stream);
+    } else if m.audio_stream.is_some() && !m.params.audio_on {
+        let stream = m.audio_stream.take().unwrap();
+        stream.pause();
+    }
 
     // Ensure we are connected to a DMX source if enabled.
     if m.params.dmx_on && m.dmx.source.is_none() {
@@ -169,59 +213,71 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         m.dmx.source.take();
     }
 
+    // Update the simple harmonic motion.
+    m.shm.update();
+    if m.params.selected_idx.is_some() {
+        m.shm.set_signal_type(signals::ALL[m.params.selected_idx.unwrap()]);
+    }
+
+    // Apply the invert and pow GUI controls to the SHM phases to get our actual phases.
+    m.phases = m.shm.phases.iter()
+        .map(|p| {
+            let mut phase = map_range(p.clone(), -1.0, 1.0, 0.0, 1.0);
+            phase = phase.powf(m.params.pow);
+            match m.params.invert {
+                true => map_range(phase, 0.0, 1.0, m.params.max, m.params.min),
+                false => map_range(phase, 0.0, 1.0, m.params.min, m.params.max),
+            }
+        })
+        .collect();
+
     // If we have a DMX source, send data over it!
-    match (&m.dmx.source, m.params.dmx_on) {
-        (Some(ref dmx_source), true) => {
-            m.dmx.buffer.clear();
-            
-            const DMX_RGB_ADDRS_PER_UNIVERSE: usize = DMX_ADDRS_PER_UNIVERSE as usize - 2;
-            assert!(m.phases.len() >= 3 * DMX_RGB_ADDRS_PER_UNIVERSE);
-            for slice in m.phases.chunks(DMX_RGB_ADDRS_PER_UNIVERSE) {
-                // Make sure we remap our normalised phase values
-                // to u8 values between 0 & 255 for DMX 
-                m.dmx.buffer.extend(slice.iter().map(|&p| (p * 255.0) as u8));
-                // We need to pack in 2 empty bytes so colour values aren't spilit over universes! 
-                m.dmx.buffer.push(0);
-                m.dmx.buffer.push(0);
-            }
+    if let (Some(dmx_source), true) = (&m.dmx.source, m.params.dmx_on) {
+        m.dmx.buffer.clear();
 
-            let mut universe = 1;
-            
-            // If we've filled a universe, send it.
-            while !m.dmx.buffer.is_empty() {
-                let data = &m.dmx.buffer[..DMX_ADDRS_PER_UNIVERSE as usize];
-                dmx_source
-                    .send(universe, data)
-                    .expect("failed to send LED DMX data");
-                m.dmx.buffer.drain(..DMX_ADDRS_PER_UNIVERSE as usize);
-                universe += 1;
-            }
+        // Use the pixel index to determine which phase to select for our brightness values.
+        for i in 0..TOTAL_LED_PIXELS {
+            let phase_ix = ((i as f64 / TOTAL_LED_PIXELS as f64) * m.phases.len() as f64) as usize;
+            let phase = m.phases[phase_ix];
+            let byte = (phase * std::u8::MAX as f32) as u8;
+            let rgb = [byte; 3];
+            m.dmx.buffer.extend(rgb.iter().cloned());
+        }
 
-            // Send any remaining dmx data.
+        let mut universe = 1;
+
+        // If we've filled all the colour for one universe, send it.
+        while !m.dmx.buffer.is_empty() {
+            let data = &m.dmx.buffer[..LED_ADDRS_PER_UNIVERSE as usize];
             dmx_source
-                .send(universe, &m.dmx.buffer[..])
-                .expect("failed to send DMX data");
-            }
-        _ => ()
+                .send(universe, data)
+                .expect("failed to send LED DMX data");
+            m.dmx.buffer.drain(..LED_ADDRS_PER_UNIVERSE as usize);
+            universe += 1;
+        }
+
+        // Send any remaining dmx data.
+        dmx_source
+            .send(universe, &m.dmx.buffer[..])
+            .expect("failed to send DMX data");
     }
 
     // Send our phase data over to the audio thead
-    if m.params.audio_on {
+    if let Some(ref audio_stream) = m.audio_stream {
         let phases = m.phases.clone();
-        m.audio_stream.send(move |audio| {
+        audio_stream.send(move |audio| {
             for (osc, phase) in audio.oscillators.iter_mut().zip(phases) {
                 osc.hz = phase as f64;
             }
         }).unwrap();
-    }  
+    }
 
     // Send our phase data over to the laser thead
-    if m.params.laser_on {
+    if let Some(ref laser_stream) = m.laser_stream {
         let phases = m.phases.clone();
-        m.laser_stream.send(move |laser| {
-            for (positions, phase) in laser.positions.iter_mut().zip(phases) {
-                *positions = phase;
-            }
+        laser_stream.send(move |laser| {
+            laser.positions.clear();
+            laser.positions.extend(phases);
         })
         .unwrap();
     }
@@ -236,19 +292,22 @@ fn view(app: &App, m: &Model, frame: &Frame) {
     let radius = win.w() / m.shm.size() as f32;
     let height = win.h() / 2.0 - 20.0;
 
-    let count = 20;
-    m.phases.chunks(count)
+    m.phases
+        .iter()
         .enumerate()
-        .for_each(|(i, slice)| {
+        .for_each(|(i, &phase)| {
             let x = (win.left() + (radius * 0.5)) + i as f32 * radius;
-            let x = map_range(i, 0, count, win.left(), win.right());
-            let (h, s, v) = (1.0 - (i as f32 / m.shm.size() as f32), 0.75, 0.5);
-            draw.line()
-                .start(Point2::new(x, 0.0))
-                .end(Point2::new(x, slice[0] * height))
-                .hsv(h, s, v);
+            let x = map_range(i, 0, m.phases.len(), win.left(), win.right());
 
-            draw.ellipse().x_y(x, slice[0] * height).w_h(radius, radius).hsv(h, s, v);
+            draw.line()
+                .color(WHITE)
+                .start(Point2::new(x, 0.0))
+                .end(Point2::new(x, phase * height));
+
+            draw.ellipse()
+                .color(WHITE)
+                .x_y(x, phase * height)
+                .w_h(radius, radius);
         });
 
     draw.to_frame(app, &frame).unwrap();
@@ -280,13 +339,11 @@ fn laser(laser: &mut Laser, frame: &mut laser::Frame) {
     let points = laser.positions
         .iter()
         .enumerate()
-        .map(|(i,y)| {
-            let x = map_range(i,0,laser.positions.len(), -1.0, 1.0);
-            let pos = [x,*y * 2.0 - 1.0];
-            let rgb = [x + 0.5 * 0.5, 0.0, *y];
+        .map(|(i, y)| {
+            let x = map_range(i, 0, laser.positions.len(), -1.0, 1.0);
+            let pos = [x, *y];
+            let rgb = [1.0, 1.0, 1.0];
             laser::Point::new(pos, rgb)
-        })
-        .collect::<Vec<_>>();
-    
+        });
     frame.add_lines(points);
 }
