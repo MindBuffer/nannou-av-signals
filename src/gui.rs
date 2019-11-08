@@ -31,6 +31,7 @@ widget_ids! {
         dmx_on,
         laser_on,
         audio_on,
+        hue,
     }
 }
 
@@ -76,12 +77,20 @@ pub fn update(ref mut ui: UiCell, ids: &mut Ids, params: &mut SignalParams, shm:
         params.audio_on = value;
     }
 
+    for value in slider(params.hue, 0.0, 1.0)
+        .mid_left_of(ids.background)
+        .down(10.0)
+        .label("Hue")
+        .set(ids.hue, ui)
+    {
+        params.hue = value;
+    }
+
     let min = -1.0;
     let max = 1.0;
     for (edge, value) in widget::RangeSlider::new(params.min, params.max, min, max)
         .color(WIDGET_COLOUR)
         .label("Amplitude")
-        .mid_left_of(ids.background)
         .down(10.0)
         .label_font_size(14)
         .label_rgb(1.0, 1.0, 1.0)
