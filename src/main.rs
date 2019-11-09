@@ -249,13 +249,15 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         // Use the pixel index to determine which phase to select for our brightness values.
         for i in 0..TOTAL_LED_PIXELS {
             let phase_ix = ((i as f64 / TOTAL_LED_PIXELS as f64) * m.phases.len() as f64) as usize;
-            let phase = m.phases[phase_ix];
-
-            let float_to_byte = |p: f32| -> u8 {
-                (p * std::u8::MAX as f32) as u8
-            };  
-            let c: Rgb = hsv(m.params.hue, 1.0, 1.0).into();
-            let rgb = [float_to_byte(phase*c.red), float_to_byte(phase*c.green), float_to_byte(phase*c.blue)];
+            let phase = m.phases[phase_ix] * 0.5 + 0.5;
+            let c: Rgb = hsl(m.params.hue, 1.0, phase).into();
+            let lc: LinSrgb = c.into_linear();
+            let float_to_byte = |p: f32| -> u8 { (p * std::u8::MAX as f32) as u8 };
+            let rgb = [
+                float_to_byte(lc.red),
+                float_to_byte(lc.green),
+                float_to_byte(lc.blue),
+            ];
             m.dmx.buffer.extend(rgb.iter().cloned());
         }
 
@@ -282,10 +284,16 @@ fn update(_app: &App, m: &mut Model, _update: Update) {
         let phases = m.phases.clone();
         audio_stream
             .send(move |audio| {
-                audio.oscillators.resize(phases.len(), Oscillator { phase: 0.0, hz: 0.0 });
+                audio.oscillators.resize(
+                    phases.len(),
+                    Oscillator {
+                        phase: 0.0,
+                        hz: 0.0,
+                    },
+                );
 
                 for (osc, phase) in audio.oscillators.iter_mut().zip(phases) {
-                    osc.hz = map_range(phase as f64,0.0,1.0,100.0,2000.0);
+                    osc.hz = map_range(phase as f64, -1.0, 1.0, 100.0, 1600.0);
                 }
             })
             .unwrap();
@@ -355,7 +363,7 @@ fn audio(audio: &mut Audio, buffer: &mut Buffer) {
 
 fn laser(laser: &mut Laser, frame: &mut laser::Frame) {
     let points = laser.positions.iter().enumerate().map(|(i, y)| {
-        let x = map_range(i, 0, laser.positions.len(), -1.0, 1.0);
+        let x = map_range(i, 0, laser.positions.len(), 1.0, -1.0);
         let pos = [x, *y];
         let rgb = [laser.rgb.red, laser.rgb.green, laser.rgb.blue];
         laser::Point::new(pos, rgb)
